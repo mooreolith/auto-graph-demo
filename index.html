@@ -1,0 +1,284 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8"></meta>
+    <title>ValueCalibrator</title>
+    <style>
+      html, body {
+        margin: 0;
+        padding: 0;
+        border: 0;
+
+        width: 100vw;
+        height: 100vh;
+        background-color: #f0f0f0;
+
+        overflow: hidden;
+      }
+
+      canvas {
+        margin: 0;
+        padding: 0;
+
+        display: block;
+        width: 100vw;
+        height: 100vh;
+        overflow: hidden;
+      }
+
+      #calibrator {
+        position: absolute;
+        top: 0;
+        left: 0;
+        margin-top: 10px;
+        margin-left: 10px;
+        width: 200px;
+        height: 62px;
+        background-color: lightblue;
+      }
+
+      #constants {
+        position: absolute;
+        top: 72px;
+        left: 0;
+        margin-top: 10px;
+        margin-left: 10px;
+        background-color: lightblue;
+      }
+
+      #radial-menu {
+        background-color: rgba(0, 0, 0, 0.0);
+      }
+    </style>
+  </head>
+  <body>
+    <div id="graph"></div>
+    <div id="calibrator"></div>
+    <div id="constants"></div>
+    
+    <script async type="module">
+
+      import RadialMenu from './lib/RadialMenu.js';
+      import { SceneGraph } from './src/scene-graph.mjs';
+      import { ValueCalibrator } from './src/value-calibrator.mjs';
+
+      const sceneGraph = new SceneGraph();
+      document.querySelector('#graph').appendChild(sceneGraph.canvas);
+
+      const properties = [
+        'epsilon', 
+        'friction', 
+        'repulsion', 
+        'attraction', 
+        'time_step', 
+        'theta', 
+        'inner_distance'
+      ];
+
+      function readConstants(){
+        const constants = {};
+        for(let property of properties){
+          constants[property] = sceneGraph.layoutGraph[`get_${property}`]();
+        }
+        return constants;
+      }
+
+      function writeConstants(constants){
+        for(let property of properties){
+          sceneGraph.layoutGraph[`set_${property}`](constants[property]);
+        }
+      }
+
+      function copyToClipBoard(){
+        const el = document.createElement('textarea');
+        el.value = JSON.stringify(readConstants())
+          .replace(/{/g, '{\n')
+          .replace(/,/g, '\n')
+          .replace(/\n/g, '\n  ')
+          .replace(/:/g, ': ')
+          .replace(/}/g, '\n}');
+        document.body.appendChild(el);
+        el.select();
+        document.execCommand('copy');
+        document.body.removeChild(el);
+      }
+
+      var last = null;
+      for(let property of properties){
+        console.log(`Intitial ${property}: ${sceneGraph.layoutGraph[`get_${property}`]()}`);
+
+        const calibrator = document.createElement('value-calibrator');
+        document.querySelector('#calibrator').appendChild(calibrator);
+        calibrator.setAttribute('label', property);
+        calibrator.label = property;
+        
+        calibrator.default = sceneGraph.layoutGraph[`get_${property}`]();
+        calibrator.value = sceneGraph.layoutGraph[`get_${property}`]();
+        
+        calibrator.subscribers.add((value) => {
+          sceneGraph.layoutGraph[`set_${property}`](value);
+          console.log(`New ${property}: `, sceneGraph.layoutGraph[`get_${property}`]());
+        });
+
+        calibrator.style.visibility = 'hidden';
+        last = calibrator;
+      }
+      last.style.visibility = 'visible';
+
+      const vertices = []
+
+      /* 
+        button functions 
+      */
+
+      window.addTenVertices = function(){
+        for(var i=0; i<10; i++){
+          var vid = sceneGraph.addVertex({color: 'black'});
+          vertices.push(vid);
+        }
+      }
+
+      window.turnAllIntoCycle = function(){
+        let first, previous, current, last;
+        for(var i=0; i<vertices.length; i++){
+          previous = current;
+          current = vertices[i];
+          if(i == 0){
+            first = vertices[i];
+          }
+
+          if(previous){
+            sceneGraph.addEdge(previous, current, {color: 'black'});
+          }
+
+          if(i == vertices.length - 1){
+            last = vertices[i];
+          }
+        }
+
+        sceneGraph.addEdge(last, first);
+      }
+
+      window.makeCube = function(size){
+        for(var i=0; i<size; i++){
+          for(var j=0; j<size; j++){
+            for(var k=0; k<size; k++){
+              var vid = sceneGraph.addVertex({color: 'black'});
+              if(j > 0){
+                sceneGraph.addEdge(vid, vertices[vertices.length - 1]);
+              }
+              if(k > 0){
+                sceneGraph.addEdge(vid, vertices[vertices.length - 10]);
+              }
+              if(i > 0){
+                sceneGraph.addEdge(vid, vertices[vertices.length - 100]);
+              }
+              vertices.push(vid);
+            }
+          }
+        }
+      }
+
+      /*
+        Radial Menu
+      */
+      const radialButtons = [
+        {
+          text: '+cube(3)',
+          action: () => {
+            makeCube(3);
+          }
+        },
+        {
+          text: '+V', 
+          action: () => {
+            vertices.push(sceneGraph.addVertex());
+          }
+        },
+        {
+          text: '-V', 
+          action: () => {
+            for(let object of sceneGraph.selection){
+              let id = object.userData.id;
+              sceneGraph.remove(id);
+              if(vertices.includes(id)){
+                vertices.splice(vertices.indexOf(id), 1);
+              }
+            }
+          }
+        },
+        {
+          text: '+E', 
+          action: () => {
+            let sel = [...sceneGraph.selection];
+            let previous;
+            for(let current of sel){
+              if(previous){
+                sceneGraph.addEdge(current.userData.id, previous.userData.id);
+              }
+
+              previous = current;
+            }
+          }
+        },
+        {
+          text: 'O', 
+          action: () => {
+            let sel = [...sceneGraph.selection];
+            if(vertices.length > 1){
+              sceneGraph.addEdge(sel[0].userData.id, sel[1].userData.id);
+            }
+
+            const first = sel[0], last = sel[sel.length - 1];
+            let current, previous;
+            for(current of sel){
+              if(previous){
+                sceneGraph.addEdge(current.userData.id, previous.userData.id);
+              }
+
+              previous = current;
+            }
+            sceneGraph.addEdge(last.userData.id, first.userData.id);
+          }
+        },
+        {
+          text: 'export (clipboard)',
+          action: copyToClipBoard
+        },
+        {
+          text: 'import (console)',
+          action: () => {
+            const constants = JSON.parse(prompt('Enter JSON string for layoutgraph constants'));
+            if(constants){
+              writeConstants(constants);
+            }
+          }
+        },
+        ...Array.from(properties.map(prop => {
+          return {
+            text: prop,
+            action: () => {
+              last.style.visibility = 'hidden';
+              last = document.querySelector(`value-calibrator[label="${prop}"]`);
+              last.style.visibility = 'visible';
+            }
+          }
+        }))
+      ];
+
+      const radialMenu = new RadialMenu(document.body, {
+        zIndex: 1000, 
+        buttons: radialButtons, 
+        innerCircle: 50, 
+        outerCircle: 100, 
+        textColor: 'black'
+      });
+      radialMenu.canvas.id = 'radial-menu';
+
+
+      window.G = sceneGraph;
+
+      sceneGraph.render();
+    </script>
+  </body>
+</html>
