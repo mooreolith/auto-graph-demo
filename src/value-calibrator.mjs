@@ -62,7 +62,7 @@ class ValueCalibrator extends HTMLElement {
         <output>${this.#value.toExponential(3)}</output>
         <br />
 
-        <label>int</label>
+        <label>base</label>
         <input 
           class="base"
           type="range" 
